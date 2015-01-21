@@ -567,8 +567,7 @@ LocalCollection.prototype.insert = function (doc, callback) {
 
   var queriesToRecompute = [];
   // trigger live queries that match
-  for (var qid in self.queries) {
-    var query = self.queries[qid];
+  _.each(self.queries, function (query, qid) {
     var matchResult = query.matcher.documentMatches(doc);
     if (matchResult.result) {
       if (query.distances && matchResult.distance !== undefined)
@@ -578,7 +577,7 @@ LocalCollection.prototype.insert = function (doc, callback) {
       else
         LocalCollection._insertInResults(query, doc);
     }
-  }
+  });
 
   _.each(queriesToRecompute, function (qid) {
     if (self.queries[qid])
@@ -790,8 +789,7 @@ LocalCollection.prototype._modifyAndNotify = function (
   var self = this;
 
   var matched_before = {};
-  for (var qid in self.queries) {
-    var query = self.queries[qid];
+  _.each(self.queries, function (query, qid) {
     if (query.ordered) {
       matched_before[qid] = query.matcher.documentMatches(doc).result;
     } else {
@@ -799,14 +797,13 @@ LocalCollection.prototype._modifyAndNotify = function (
       // can just do a direct lookup.
       matched_before[qid] = query.results.has(doc._id);
     }
-  }
+  });
 
   var old_doc = EJSON.clone(doc);
 
   LocalCollection._modify(doc, mod, {arrayIndices: arrayIndices});
 
-  for (qid in self.queries) {
-    query = self.queries[qid];
+  _.each(self.queries, function (query, qid) {
     var before = matched_before[qid];
     var afterMatch = query.matcher.documentMatches(doc);
     var after = afterMatch.result;
@@ -830,7 +827,7 @@ LocalCollection.prototype._modifyAndNotify = function (
     } else if (before && after) {
       LocalCollection._updateInResults(query, doc, old_doc);
     }
-  }
+  });
 };
 
 // XXX the sorted-query logic below is laughably inefficient. we'll
@@ -1010,19 +1007,18 @@ LocalCollection.prototype._saveOriginal = function (id, doc) {
 // Pause the observers. No callbacks from observers will fire until
 // 'resumeObservers' is called.
 LocalCollection.prototype.pauseObservers = function () {
+  var self = this;
   // No-op if already paused.
   if (this.paused)
     return;
 
   // Set the 'paused' flag such that new observer messages don't fire.
-  this.paused = true;
+  self.paused = true;
 
   // Take a snapshot of the query results for each query.
-  for (var qid in this.queries) {
-    var query = this.queries[qid];
-
+  _.each(self.queries, function (query) {
     query.resultsSnapshot = EJSON.clone(query.results);
-  }
+  });
 };
 
 // Resume the observers. Observers immediately receive change
@@ -1039,14 +1035,13 @@ LocalCollection.prototype.resumeObservers = function () {
   // observer methods won't actually fire when we trigger them.
   this.paused = false;
 
-  for (var qid in this.queries) {
-    var query = self.queries[qid];
+  _.each(self.queries, function (query) {
     // Diff the current results against the snapshot and send to observers.
     // pass the query object for its observer callbacks.
     LocalCollection._diffQueryChanges(
       query.ordered, query.resultsSnapshot, query.results, query);
     query.resultsSnapshot = null;
-  }
+  });
   self._observeQueue.drain();
 };
 

@@ -18,5 +18,7 @@ Package.onUse(function (api) {
   api.addFiles('tinytest_client.js', 'client');
   api.addFiles('tinytest_server.js', 'server');
 
+  api.addFiles('extend_object_prototype.js');
+
   api.use('check');
 });
