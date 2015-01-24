@@ -468,7 +468,8 @@ _.extend(Isopack.prototype, {
         self.sourceHandlers[extension] = {
           handler: handler,
           isTemplate: !!options.isTemplate,
-          archMatching: options.archMatching
+          archMatching: options.archMatching,
+          batch: !!options.batch
         };
       }
     };

@@ -223,45 +223,49 @@ var compileUnibuild = function (options) {
 
   activePluginPackages = _.uniq(activePluginPackages);
 
-  // *** Assemble the list of source file handlers from the plugins
-  var allHandlersWithPkgs = {};
+  // *** Assemble the list of source file handlers from the plugins Maps from
+  // extension to {pkgName, record (as returned from getSourceHandlers)}.
+  var allHandlerRecords = {};
   var sourceExtensions = {};  // maps source extensions to isTemplate
 
   sourceExtensions['js'] = false;
-  allHandlersWithPkgs['js'] = {
+  allHandlerRecords['js'] = {
     pkgName: null /* native handler */,
-    handler: function (compileStep) {
-      // This is a hardcoded handler for *.js files. Since plugins
-      // are written in JavaScript we have to start somewhere.
+    handlerRecord: {
+      handler: function (compileStep) {
+        // This is a hardcoded handler for *.js files. Since plugins are written
+        // in JavaScript we have to start somewhere.
 
-      var options = {
-        data: compileStep.read().toString('utf8'),
-        path: compileStep.inputPath,
-        sourcePath: compileStep.inputPath,
-        _hash: compileStep._hash
-      };
+        var options = {
+          data: compileStep.read().toString('utf8'),
+          path: compileStep.inputPath,
+          sourcePath: compileStep.inputPath,
+          _hash: compileStep._hash
+        };
 
-      if (compileStep.fileOptions.hasOwnProperty("bare")) {
-        options.bare = compileStep.fileOptions.bare;
-      } else if (compileStep.fileOptions.hasOwnProperty("raw")) {
-        // XXX eventually get rid of backward-compatibility "raw" name
-        // XXX COMPAT WITH 0.6.4
-        options.bare = compileStep.fileOptions.raw;
+        if (compileStep.fileOptions.hasOwnProperty("bare")) {
+          options.bare = compileStep.fileOptions.bare;
+        } else if (compileStep.fileOptions.hasOwnProperty("raw")) {
+          // XXX eventually get rid of backward-compatibility "raw" name
+          // XXX COMPAT WITH 0.6.4
+          options.bare = compileStep.fileOptions.raw;
+        }
+
+        compileStep.addJavaScript(options);
       }
-
-      compileStep.addJavaScript(options);
     }
   };
 
   _.each(activePluginPackages, function (otherPkg) {
     _.each(otherPkg.getSourceHandlers(), function (sourceHandler, ext) {
       // XXX comparing function text here seems wrong.
-      if (_.has(allHandlersWithPkgs, ext) &&
-          allHandlersWithPkgs[ext].handler.toString() !== sourceHandler.handler.toString()) {
+      if (_.has(allHandlerRecords, ext) &&
+          (allHandlerRecords[ext].handlerRecord.handler.toString() !==
+           sourceHandler.handler.toString())) {
         buildmessage.error(
           "conflict: two packages included in " +
             (inputSourceArch.pkg.name || "the app") + ", " +
-            (allHandlersWithPkgs[ext].pkgName || "the app") + " and " +
+            (allHandlerRecords[ext].pkgName || "the app") + " and " +
             (otherPkg.name || "the app") + ", " +
             "are both trying to handle ." + ext);
         // Recover by just going with the first handler we saw
@@ -273,9 +277,9 @@ var compileUnibuild = function (options) {
           !archinfo.matches(inputSourceArch.arch, sourceHandler.archMatching)) {
         return;
       }
-      allHandlersWithPkgs[ext] = {
+      allHandlerRecords[ext] = {
         pkgName: otherPkg.name,
-        handler: sourceHandler.handler
+        handlerRecord: sourceHandler
       };
       sourceExtensions[ext] = !!sourceHandler.isTemplate;
     });
@@ -345,20 +349,20 @@ var compileUnibuild = function (options) {
     }
 
     // Find the handler for source files with this extension.
-    var handler = null;
+    var handlerRecord = null;
     var extension = null;
     if (! fileOptions.isAsset) {
       var parts = filename.split('.');
       for (var i = 0; i < parts.length; i++) {
         extension = parts.slice(i).join('.');
-        if (_.has(allHandlersWithPkgs, extension)) {
-          handler = allHandlersWithPkgs[extension].handler;
+        if (_.has(allHandlerRecords, extension)) {
+          handlerRecord = allHandlerRecords[extension].handlerRecord;
           break;
         }
       }
     }
 
-    if (! handler) {
+    if (! handlerRecord) {
       // If we don't have an extension handler, serve this file as a
       // static resource on the client, or ignore it on the server.
       //
@@ -757,7 +761,7 @@ var compileUnibuild = function (options) {
 
     if (! _.has(compileStepsByExtension, extension)) {
       compileStepsByExtension[extension] = {
-        handler: handler,
+        handlerRecord: handlerRecord,
         compileSteps: []
       };
     }
@@ -766,19 +770,37 @@ var compileUnibuild = function (options) {
   });
 
   // Run all the handlers, batched by extension.
-  _.each(compileStepsByExtension, function (record) {
-    var handler = record.handler;
-    _.each(record.compileSteps, function (compileStep) {
+  _.each(compileStepsByExtension, function (byExtension, extension) {
+    var handlerRecord = byExtension.handlerRecord;
+    var handler = handlerRecord.handler;
+
+    if (handlerRecord.batch) {
+      // Batch mode!  Pass in all compileSteps at once.
       try {
-        (buildmessage.markBoundary(handler))(compileStep);
+        (buildmessage.markBoundary(handler))(byExtension.compileSteps);
       } catch (e) {
-        e.message = e.message + " (compiling " + compileStep.inputPath + ")";
+        // This is a pretty vague message, but handlers should really be using
+        // compileStep.error instead, which will include the correct filename.
+        e.message = e.message + " (compiling *." + extension + ")";
         buildmessage.exception(e);
 
-        // Recover by ignoring this source file (as best we can -- the
-        // handler might already have emitted resources)
+        // Recover by ignoring these source files (as best we can -- the handler
+        // might already have emitted resources)
       }
-    });
+    } else {
+      // Individual mode: run the handler a bunch of times.
+      _.each(byExtension.compileSteps, function (compileStep) {
+        try {
+          (buildmessage.markBoundary(handler))(compileStep);
+        } catch (e) {
+          e.message = e.message + " (compiling " + compileStep.inputPath + ")";
+          buildmessage.exception(e);
+
+          // Recover by ignoring this source file (as best we can -- the
+          // handler might already have emitted resources)
+        }
+      });
+    }
   });
 
   // Now actually perform the actions that the handlers dictated, ordered by
