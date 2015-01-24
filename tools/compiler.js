@@ -322,6 +322,12 @@ var compileUnibuild = function (options) {
     });
   };
 
+  // Maps extension -> {handler, compileSteps}.
+  var compileStepsByExtension = {};
+  var orderedCompileSteps = [];
+
+  // Create compileStep objects for each source item. (Handle static assets
+  // immediately.)
   _.each(sourceItems, function (source) {
     var relPath = source.relPath;
     var fileOptions = _.clone(source.fileOptions) || {};
@@ -340,10 +346,11 @@ var compileUnibuild = function (options) {
 
     // Find the handler for source files with this extension.
     var handler = null;
+    var extension = null;
     if (! fileOptions.isAsset) {
       var parts = filename.split('.');
       for (var i = 0; i < parts.length; i++) {
-        var extension = parts.slice(i).join('.');
+        extension = parts.slice(i).join('.');
         if (_.has(allHandlersWithPkgs, extension)) {
           handler = allHandlersWithPkgs[extension].handler;
           break;
@@ -604,6 +611,7 @@ var compileUnibuild = function (options) {
        * @instance
        */
       addHtml: function (options) {
+        var self = this;
         if (! archinfo.matches(inputSourceArch.arch, "web"))
           throw new Error("Document sections can only be emitted to " +
                           "web targets");
@@ -611,9 +619,11 @@ var compileUnibuild = function (options) {
           throw new Error("'section' must be 'head' or 'body'");
         if (typeof options.data !== "string")
           throw new Error("'data' option to appendDocument must be a string");
-        resources.push({
-          type: options.section,
-          data: new Buffer(options.data, 'utf8')
+        self._actions.push(function () {
+          resources.push({
+            type: options.section,
+            data: new Buffer(options.data, 'utf8')
+          });
         });
       },
 
@@ -637,17 +647,20 @@ var compileUnibuild = function (options) {
        * @instance
        */
       addStylesheet: function (options) {
+        var self = this;
         if (! archinfo.matches(inputSourceArch.arch, "web"))
           throw new Error("Stylesheets can only be emitted to " +
                           "web targets");
         if (typeof options.data !== "string")
           throw new Error("'data' option to addStylesheet must be a string");
-        resources.push({
-          type: "css",
-          refreshable: true,
-          data: new Buffer(options.data, 'utf8'),
-          servePath: files.pathJoin(inputSourceArch.pkg.serveRoot, options.path),
-          sourceMap: options.sourceMap
+        self._actions.push(function () {
+          resources.push({
+            type: "css",
+            refreshable: true,
+            data: new Buffer(options.data, 'utf8'),
+            servePath: files.pathJoin(inputSourceArch.pkg.serveRoot, options.path),
+            sourceMap: options.sourceMap
+          });
         });
       },
 
@@ -667,6 +680,7 @@ var compileUnibuild = function (options) {
        * @instance
        */
       addJavaScript: function (options) {
+        var self = this;
         if (typeof options.data !== "string")
           throw new Error("'data' option to addJavaScript must be a string");
         if (typeof options.sourcePath !== "string")
@@ -681,13 +695,15 @@ var compileUnibuild = function (options) {
           bare = options.bare;
         }
 
-        js.push({
-          source: options.data,
-          sourcePath: options.sourcePath,
-          servePath: files.pathJoin(inputSourceArch.pkg.serveRoot, options.path),
-          bare: !! bare,
-          sourceMap: options.sourceMap,
-          sourceHash: options._hash
+        self._actions.push(function () {
+          js.push({
+            source: options.data,
+            sourcePath: options.sourcePath,
+            servePath: files.pathJoin(inputSourceArch.pkg.serveRoot, options.path),
+            bare: !! bare,
+            sourceMap: options.sourceMap,
+            sourceHash: options._hash
+          });
         });
       },
 
@@ -712,6 +728,8 @@ var compileUnibuild = function (options) {
           }
         }
 
+        // Assets shouldn't have any ordering dependencies so we just do this
+        // now.
         addAsset(options.data, options.path);
       },
 
@@ -732,18 +750,43 @@ var compileUnibuild = function (options) {
           column: options.column ? options.column : undefined,
           func: options.func ? options.func : undefined
         });
-      }
+      },
+
+      _actions: []
     };
 
-    try {
-      (buildmessage.markBoundary(handler))(compileStep);
-    } catch (e) {
-      e.message = e.message + " (compiling " + relPath + ")";
-      buildmessage.exception(e);
-
-      // Recover by ignoring this source file (as best we can -- the
-      // handler might already have emitted resources)
+    if (! _.has(compileStepsByExtension, extension)) {
+      compileStepsByExtension[extension] = {
+        handler: handler,
+        compileSteps: []
+      };
     }
+    compileStepsByExtension[extension].compileSteps.push(compileStep);
+    orderedCompileSteps.push(compileStep);
+  });
+
+  // Run all the handlers, batched by extension.
+  _.each(compileStepsByExtension, function (record) {
+    var handler = record.handler;
+    _.each(record.compileSteps, function (compileStep) {
+      try {
+        (buildmessage.markBoundary(handler))(compileStep);
+      } catch (e) {
+        e.message = e.message + " (compiling " + compileStep.inputPath + ")";
+        buildmessage.exception(e);
+
+        // Recover by ignoring this source file (as best we can -- the
+        // handler might already have emitted resources)
+      }
+    });
+  });
+
+  // Now actually perform the actions that the handlers dictated, ordered by
+  // original source order.
+  _.each(orderedCompileSteps, function (compileStep) {
+    _.each(compileStep._actions, function (action) {
+      action();
+    });
   });
 
   // *** Run Phase 1 link
