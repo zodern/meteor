@@ -477,6 +477,11 @@ var exception = function (error) {
   } else {
     var stack = parseStack.parse(error);
     var locus = stack[0];
+    if (! locus) {
+      // Couldn't get stack trace somehow.
+      buildmessage.error(message);
+      return;
+    }
     currentJob.get().addMessage({
       message: message,
       stack: stack,
