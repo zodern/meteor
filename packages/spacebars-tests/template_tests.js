@@ -3067,3 +3067,14 @@ Tinytest.add("spacebars-tests - template_tests - inclusion with data remove (#31
   test.isTrue(parentView.isDestroyed);
   test.equal(canonicalizeHtml(div.innerHTML), "<span></span>");
 });
+
+Tinytest.add("spacebars-tests - template_tests - local template state", function (test) {
+  var tmpl = Template.spacebars_template_test_local_template_state;
+
+  tmpl.onCreated(function () {
+    this.state.set("x", 5);
+  });
+
+  var div = renderToDiv(tmpl);
+  test.equal(canonicalizeHtml(div.innerHTML), "5");
+});

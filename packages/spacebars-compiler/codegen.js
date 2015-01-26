@@ -27,7 +27,9 @@ var builtInTemplateMacros = {
   // Confusingly, this makes `{{> Template.dynamic}}` an alias
   // for `{{> __dynamic}}`, where "__dynamic" is the template that
   // implements the dynamic template feature.
-  'dynamic': 'Template.__dynamic'
+  'dynamic': 'Template.__dynamic',
+
+  'state': '_.bind(view.templateInstance().state.get, view.templateInstance().state)'
 };
 
 // A "reserved name" can't be used as a <template> name.  This

@@ -263,6 +263,12 @@ Blaze.TemplateInstance = function (view) {
    * @type {DOMNode}
    */
   this.lastNode = null;
+
+  /**
+   * A Reactive Dict for storing local template state.
+   * @type {ReactiveDict}
+   */
+  this.state = new ReactiveDict();
 };
 
 /**
