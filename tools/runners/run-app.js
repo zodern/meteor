@@ -839,12 +839,10 @@ _.extend(AppRunner.prototype, {
 
     Console.enableProgressDisplay(false);
 
-    const postStartupResult = Promise.race([
-      listenPromise,
-      runPromise
-    ]).then(() => {
-      return runPostStartupCallbacks(bundleResult);
-    }).await();
+    const postStartupResult = listenPromise
+      .await()
+      .then(() => runPostStartupCallbacks(bundleResult))
+      .await();
 
     if (postStartupResult) return postStartupResult;
 
