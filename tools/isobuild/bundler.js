@@ -173,6 +173,7 @@ import { loadIsopackage } from '../tool-env/isopackets.js';
 import { CORDOVA_PLATFORM_VERSIONS } from '../cordova';
 import { gzipSync } from "zlib";
 import { PackageRegistry } from "../../packages/meteor/define-package.js";
+import { optimisticStatOrNull } from '../fs/optimistic.js';
 
 const SOURCE_URL_PREFIX = "meteor://\u{1f4bb}app";
 
@@ -549,8 +550,12 @@ class File {
     // disk).
     this.sourcePath = options.sourcePath;
 
-    // Allows not calculating sri when the file doesn't support it
-    this._skipSri = options.skipSri
+    // Any contents are directly from disk and were not modified
+    this.contentsFromDisk = options.sourcePath && !options.data;
+
+    // Allows not calculating sri it isn't needed and
+    // the the input hash is from the current contents
+    this._skipSri = options.skipSri;
 
     // info is just for help with debugging the tool; it isn't written to disk or
     // anything.
@@ -660,11 +665,20 @@ class File {
   setContents(b) {
     assert.ok(Buffer.isBuffer(b), "Must pass Buffer to File#setContents");
     this._contents = b;
+
+    this.contentsFromDisk = false;
     // Bust the hash cache.
     this._hash = this._sri = null;
   }
 
   size() {
+    if (this.contentsFromDisk) {
+      const stat = optimisticStatOrNull(this.sourcePath);
+      if (stat) {
+        return stat.size;
+      }
+    }
+
     return this.contents().length;
   }
 
@@ -1169,7 +1183,7 @@ class Target {
           cacheable: false,
           hash: resource.hash,
           sourcePath: resource.sourcePath,
-          skipSri: !!resource.sourcePath && resource.hash
+          skipSri: !resource.data && resource.sourcePath && resource.hash
         };
 
         const file = new File(fileOptions);
@@ -1192,7 +1206,9 @@ class Target {
 
           if (isWeb) {
             f.setUrlFromRelPath(resource.servePath);
-          } else {
+          } else if (isOs) {
+            // XXX also storing the hash and sourcePath
+            // could save time later
             unibuildAssets[resource.path] = resource.data;
           }
 
@@ -1722,7 +1738,7 @@ class ClientTarget extends Target {
       manifestItem.sri = file.sri();
 
       if (! file.targetPath.startsWith("dynamic/")) {
-        writeFile(file, builder);
+        writeFile(file, builder, { copy: type === 'asset' && file.contentsFromDisk });
         manifest.push(manifestItem);
         return;
       }
@@ -2757,13 +2773,18 @@ var writeFile = Profile("bundler writeFile", function (file, builder, options) {
   // (rather than just serving all of the files in a certain
   // directories)
 
-  let data = file.contents();
   const hash = file.hash();
-
+  
   if (builder.usePreviousWrite(file.targetPath, hash)) {
     return;
   }
 
+  if (options.copy) {
+    builder.copyFile(file.targetPath, file.sourcePath, hash);
+    return;
+  }
+  
+  let data = file.contents();
   if (options && options.sourceMapUrl) {
     data = addSourceMappingURL(data, options.sourceMapUrl);
   } else {

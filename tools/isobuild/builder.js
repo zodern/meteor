@@ -12,6 +12,9 @@ import {
   optimisticLStatOrNull,
   optimisticHashOrNull,
 } from "../fs/optimistic.js";
+import {
+  constants
+} from 'fs';
 
 // Builder is in charge of writing "bundles" to disk, which are
 // directory trees such as site archives, programs, and packages.  In
@@ -261,6 +264,32 @@ Previous builder: ${previousBuilder.outputPath}, this builder: ${outputPath}`
     if (sanitize) {
       relPath = this._sanitize(relPath);
     }
+
+    return relPath;
+  }
+
+  // Copies the file from sourcePath into the bundle and
+  // makes it read only. Uses copy-on-write on platforms that support it.
+  copyFile (relPath, sourcePath, hash) {
+    relPath = this._normalizeFilePath(relPath);
+    this._ensureDirectory(files.pathDirname(relPath));
+    const absPath = files.pathJoin(this.buildPath, relPath);
+    
+    if (this.previousWrittenHashes[relPath] !== hash && this.writtenHashes[relPath] !== hash) {
+      const mode = 0o444;
+
+      if (this.buildPath === this.outputPath || this.writtenHashes[relPath]) {
+        atomicallyCopyFile(sourcePath,absPath, {
+          mode
+        });
+      } else {
+        files.copyFileNative(sourcePath,absPath, constants.COPYFILE_FICLONE);
+        files.chmod(absPath, mode);
+      }
+    }
+
+    this.writtenHashes[relPath] = hash;
+    this.usedAsFile[relPath] = true;
 
     return relPath;
   }
@@ -851,6 +880,22 @@ function atomicallyRewriteFile(path, data, options) {
     } else {
       throw e;
     }
+  }
+}
+
+function atomicallyCopyFile(sourcePath, destPath, options) {
+  const rname = '.builder-tmp-file.' + Math.floor(Math.random() * 999999);
+  const rpath = files.pathJoin(files.pathDirname(destPath), rname);
+  files.copyFile(sourcePath, rpath);
+
+  try {
+    files.rename(rpath, destPath);
+  } catch (e) {
+    throw e;
+  }
+
+  if (options.mode) {
+    files.chmod(destPath, options.mode);
   }
 }
 

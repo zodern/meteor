@@ -321,13 +321,18 @@ export class Unibuild {
         return;
       }
 
+      let data = resource.data;
+      if (!resource.data && resource.sourcePath) {
+        data = files.readFile(resource.sourcePath);
+      }
+
       const generatedFilename =
         builder.writeToGeneratedFilename(
           files.pathJoin(
             unibuildDir,
             resource.servePath || resource.path,
           ),
-          { data: resource.data }
+          { data }
         );
 
       if (! usesModules &&
@@ -342,7 +347,7 @@ export class Unibuild {
         type: resource.type,
         extension: resource.extension,
         file: generatedFilename,
-        length: resource.data.length,
+        length: data.length,
         offset: 0,
         usesDefaultSourceProcessor:
           resource.usesDefaultSourceProcessor || undefined,

@@ -7,6 +7,7 @@ import {Profile} from '../tool-env/profile.js';
 
 import {
   optimisticHashOrNull,
+  optimisticHashOrNullOnly,
 } from "./optimistic.js";
 
 const WATCH_COALESCE_MS =
@@ -385,7 +386,7 @@ export class Watcher {
       throw new Error("Checking unknown file " + absPath);
     }
 
-    var newHash = optimisticHashOrNull(absPath);
+    var newHash = optimisticHashOrNullOnly(absPath);
 
     if (newHash === null) {
       // File does not exist (or is a directory).

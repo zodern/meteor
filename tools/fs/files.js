@@ -1552,12 +1552,15 @@ files.fsFixPath = {};
  * doesn't have a first "error" argument, for example in fs.exists.
  * @param {Function} options.modifyReturnValue Pass in a function to modify the
  * return value
+ * @param {String} options.name The property name on files it is added as.
+ * Appended with `Sync` for the sync version.
  */
 function wrapFsFunc(fsFuncName, pathArgIndices, options) {
   options = options || {};
 
   const fsFunc = fs[fsFuncName];
   const fsFuncSync = fs[fsFuncName + "Sync"];
+  const name = options && options.name || fsFuncName;
 
   function makeWrapper ({alwaysSync, sync}) {
     function wrapper(...args) {
@@ -1654,16 +1657,16 @@ function wrapFsFunc(fsFuncName, pathArgIndices, options) {
       throw new Error('unexpected');
     }
 
-    wrapper.displayName = fsFuncName;
+    wrapper.displayName = name;
     return wrapper;
   }
 
-  files[fsFuncName] = Profile('files.' + fsFuncName, makeWrapper({ alwaysSync: true }));
+  files[name] = Profile('files.' + name, makeWrapper({ alwaysSync: true }));
 
-  files.fsFixPath[fsFuncName] =
-    Profile('wrapped.fs.' + fsFuncName, makeWrapper({ sync: false }));
-  files.fsFixPath[fsFuncName + 'Sync'] =
-    Profile('wrapped.fs.' + fsFuncName + 'Sync', makeWrapper({ sync: true }));
+  files.fsFixPath[name] =
+    Profile('wrapped.fs.' + name, makeWrapper({ sync: false }));
+  files.fsFixPath[name + 'Sync'] =
+    Profile('wrapped.fs.' + name + 'Sync', makeWrapper({ sync: true }));
 }
 
 let dependOnPathSalt = 0;
@@ -1702,6 +1705,9 @@ wrapFsFunc("readFile", [0], {
 
 wrapFsFunc("stat", [0]);
 wrapFsFunc("lstat", [0]);
+wrapFsFunc('copyFile', [0, 1], {
+  name: 'copyFileNative'
+});
 
 wrapDestructiveFsFunc("rename", [0, 1]);
 

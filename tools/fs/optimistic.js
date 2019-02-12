@@ -241,6 +241,29 @@ export const optimisticHashOrNull = makeOptimistic("hashOrNull", (...args) => {
   return null;
 });
 
+// Same as optimisticHashOrNull, but does not cache the file contents
+// Calls optimisticHashOrNull if it already has the hash
+export const optimisticHashOrNullOnly = makeOptimistic("hashOrNull", (...args) => {
+  if (optimisticHashOrNull.has(...args)) {
+    // The hash and file contents are already cached by
+    // optimisticHashOrNull and optimisticReadFile.
+    return optimisticHashOrNull(...args)
+  }
+
+  try {
+    return sha1(readFile(...args));
+  } catch (e) {
+    if (e.code !== "EISDIR" &&
+      e.code !== "ENOENT") {
+        throw e;
+    }
+  }
+
+  dependOnParentDirectory(args[0]);
+
+  return null;
+});
+
 export const optimisticReadJsonOrNull =
 makeOptimistic("readJsonOrNull", (path, options) => {
   try {

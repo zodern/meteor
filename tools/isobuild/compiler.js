@@ -350,6 +350,7 @@ var compileUnibuild = Profile(function (options) {
   const resources = [];
   const pluginProviderPackageNames = {};
   const watchSet = inputSourceArch.watchSet.clone();
+  const isOs = archinfo.matches(inputSourceArch.arch, 'os');
 
   // *** Determine and load active plugins
   const activePluginPackages = getActivePluginPackages(isopk, {
@@ -457,7 +458,7 @@ var compileUnibuild = Profile(function (options) {
 
   // This function needs to be factored out to support legacy handlers later on
   // in the compilation process
-  function addAsset(contents, relPath, absPath, hash) {
+  function addAsset(contents, relPath, hash, absPath) {
     // XXX hack to strip out private and public directory names from app asset
     // paths
     if (! inputSourceArch.pkg.name) {
@@ -479,15 +480,23 @@ var compileUnibuild = Profile(function (options) {
   _.values(assets).forEach((asset) => {
     const relPath = asset.relPath;
     const absPath = files.pathResolve(inputSourceArch.sourceRoot, relPath);
+    let hash = null;
+    let contents = null;
 
-    // readAndWatchFileWithHash returns an object carrying a buffer with the
-    // file-contents. The buffer contains the original data of the file (no EOL
-    // transforms from the tools/files.js part).
-    const file = watch.readAndWatchFileWithHash(watchSet, absPath);
-    const hash = file.hash;
-    const contents = file.contents;
+    // The builder expects server asset's content to be in memory
+    if (isOs) {
+      // readAndWatchFileWithHash returns an object carrying a buffer with the
+      // file-contents. The buffer contains the original data of the file (no EOL
+      // transforms from the tools/files.js part).
+      const file = watch.readAndWatchFileWithHash(watchSet, absPath);
+      hash = file.hash;
+      contents = file.contents;
+    } else {
+      hash = optimisticHashOrNullOnly(absPath);
+      watchSet.addFile(absPath, hash);
+    }
 
-    addAsset(contents, relPath, absPath, hash);
+    addAsset(contents, relPath, hash, absPath);
   });
 
   // Add and compile all source files
